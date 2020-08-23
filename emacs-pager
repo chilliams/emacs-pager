@@ -1,17 +1,22 @@
 #!/usr/bin/env ruby
 
-require 'digest/md5'
 require 'fileutils'
+require 'securerandom'
 
-input = ARGF.read
-file = "/tmp/#{Digest::MD5.hexdigest input}.emacs-pager"
+file = "/tmp/#{SecureRandom.hex}.emacs-pager"
 
-File.open(file, 'w') do |f|
-  f.write(input)
+FileUtils.touch(file)
+
+child_pid = fork do
+  File.open(file, 'w') do |f|
+    ARGF.each_line do |line|
+      f.write(line)
+    end
+  end
 end
 
 puts 'reading into emacs...'
 
-`emacsclient #{file}`
+`emacsclient -e '(emacs-pager-page "#{file}" #{child_pid})'`
 
-FileUtils.rm(file)
+Process.waitall

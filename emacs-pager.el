@@ -30,32 +30,47 @@
 (defvar emacs-pager-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "q") 'emacs-pager-kill-pager)
-
     map)
   "Keymap for emacs pager mode.")
-
-(defcustom emacs-pager-max-line-coloring 500
-  "Maximum number of lines to ansi-color. If performance is bad when
-   loading data, reduce this number"
-  :group 'emacs-pager)
 
 (defun emacs-pager-kill-pager ()
   "Kill pager buffer immediately"
   (interactive)
-  (set-buffer-modified-p nil)
-  (server-edit))
+  (delete-process (get-buffer-process (current-buffer)))
+  (call-process "kill" nil nil nil "-9" (number-to-string emacs-pager-pid))
+  (let ((filename emacs-pager-filename))
+    (kill-buffer)
+    (delete-file filename)
+    (message "Deleted file %s" filename)))
 
 ;;;###autoload
-(define-derived-mode emacs-pager-mode fundamental-mode "Pager"
+(define-derived-mode emacs-pager-mode comint-mode "Pager"
   "Mode for viewing data paged by emacs-pager"
   (setq-local make-backup-files nil)
-  (ansi-color-apply-on-region (goto-char (point-min))
-                              (save-excursion
-                                (forward-line emacs-pager-max-line-coloring)
-                                (point)))
-
-  (setq buffer-name "*pager*")
   (read-only-mode))
+
+(defun emacs-pager-output-filter (process string)
+  (comint-output-filter process string)
+  (when emacs-pager-move-to-begin
+    (beginning-of-buffer)
+    (setq-local emacs-pager-move-to-begin nil)))
+
+(defun emacs-pager-page (filename pid)
+  (let ((buf (generate-new-buffer "*pager*")))
+    (with-current-buffer buf
+      (emacs-pager-mode)
+      (set (make-local-variable 'emacs-pager-pid) pid)
+      (set (make-local-variable 'emacs-pager-move-to-begin) t)
+      (set (make-local-variable 'emacs-pager-filename) filename))
+    (switch-to-buffer buf)
+    (let ((proc (start-process "*pager*"
+                               buf
+                               "tail"
+                               "-F"
+                               "-n"
+                               "+1"
+                               filename)))
+      (set-process-filter proc 'emacs-pager-output-filter))))
 
 (provide 'emacs-pager)
 
